@@ -1,0 +1,51 @@
+---
+布局: 全局
+标题: 概览
+---
+
+欢迎使用Alluxio在线文档！在这里，您将获取到有关 Alluxio 部署、集成各类技术栈、API 参考等资源！如果您有任何疑问，欢迎加入 Alluxio 社区Slack [alluxio.io/slack](https://www.alluxio.io/slack)。
+
+
+## 开始使用 Alluxio
+
+### 快速入门指南
+请参阅[快速入门指南]({{ '/en/deploy/Get-Started.html' | relativize_url }})，获取有关下载和配置 Alluxio、在本地计算机上运行 Alluxio ，并通过 Alluxio Shell 工具处理基础任务的详细步骤。
+
+▶️ [在3分钟内启动并运行 Alluxio！](https://youtu.be/5YQvvznT5cI){:target="_blank"} (2:36)
+
+
+### 在 Kubernetes 中安装部署 Alluxio
+请参阅[在 Kubernetes 中安装部署 Alluxio]({{ '/en/kubernetes/Install-Alluxio-On-Kubernetes.html' | relativize_url }}) 了解如何通过 [Helm](https://helm.sh/) 和 [Operator](https://kubernetes.io/docs/concepts/extend-kubernetes/operator/) 在 Kubernetes 中安装部署 Alluxio。其中，Helm 是 Kubernetes的应用包管理器 ，Operator 是 Kubernetes管理应用的扩展软件。
+
+查看以下两个关于 Alluxio 部署及配置建议的视频：
+* ▶️ [在 Kubernetes 中安装部署 Alluxio](https://www.youtube.com/watch?v=FlvbekK_xG0){:target="_blank"} (5:12)
+* ▶️ [最佳实践：在 Kubernetes 中运行 Alluxio](https://www.youtube.com/watch?v=zwhMwiYmO8M){:target="_blank"} (5:26)
+
+
+### 在物理机上安装 Alluxio
+
+确保您的运行环境符合[软件要求]({{ '/en/deploy/Software-Requirements.html' | relativize_url}})，然后按照[部署高可用Alluxio 集群]({{ '/en/deploy/Install-Alluxio-Cluster-with-HA.html' | relativize_url }})的引导步骤来部署具备高可用(HA)性能的Alluxio 集群，其中HA是通过在不同节点上运行多个Alluxio master 进程来实现的。
+
+### 在 Docker 上安装 Alluxio
+
+您可以按照我们的教程[在 Docker 上安装 Alluxio]({{ '/en/deploy/Install-Alluxio-Cluster-with-Docker.html' | relativize_url }})，在单个节点上运行容器化的 Alluxio，将本地磁盘作为底层存储，并通过几个'docker run' 命令来运行 Alluxio 集群。
+
+## 使用 Alluxio 运行计算框架
+* [使用 Alluxio 运行 Presto]({{ '/en/compute/Presto.html' | relativize_url }})
+* [使用 Alluxio 运行 Trino]({{ '/en/compute/Trino.html' | relativize_url }})
+* [使用 Alluxio 运行 Apache Spark]({{ '/en/compute/Spark.html' | relativize_url }})
+
+## 将存储服务连接到 Alluxio
+请参阅[存储集成概述]({{ '/en/ufs/Storage-Overview.html' | relativize_url }})，获取支持与 Alluxio集成的所有存储类型和前提条件。
+
+* [AWS S3]({{ '/en/ufs/S3.html' | relativize_url }})
+* [HDFS]({{ '/en/ufs/HDFS.html' | relativize_url }})
+* [谷歌云存储]({{ '/en/ufs/GCS.html' | relativize_url }})
+
+## 获取 Alluxio 社区帮助
+
+欢迎加入我们活跃且迅速壮大的[Alluxio 社区 Slack 频道](https://www.alluxio.io/slack)，与 Alluxio 用户和开发人员建立联系。如果您在使用 Alluxio 过程中遇到任何Alluxio相关的技术问题，请将问题发送到 `#troubleshooting` 群。如果您是一名开发人员，并希望为 Alluxio 社区做出贡献，请加入`#dev` 群。
+
+## 为 Alluxio 开源社区做贡献
+
+欢迎成为 Alluxio 开源项目的贡献者！请参阅我们的[贡献指南]({{ '/en/contributor/Contribution-Guide.html' | relativize_url }}) ，了解如何参与到 Alluxio 项目中并领取贡献者任务。
