@@ -29,6 +29,7 @@ import alluxio.underfs.UnderFileSystem;
 import alluxio.worker.block.io.BlockReadableChannel;
 import alluxio.worker.block.io.BlockReader;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -88,6 +89,16 @@ public class PagedFileReader extends BlockReader implements PositionReader {
     mPos = startPosition;
   }
 
+  @VisibleForTesting
+  void setPosition(int pos) {
+    mPos = pos;
+  }
+
+  @VisibleForTesting
+  long getPosition() {
+    return mPos;
+  }
+
   /**
    * Get a {@link CompositeDataBuffer} which has a list of {@link DataFileChannel}.
    *
@@ -117,6 +128,8 @@ public class PagedFileReader extends BlockReader implements PositionReader {
         dataBuffer = dataFileChannel.get();
         if (dataBuffer.getLength() > 0) {
           mPos += dataBuffer.getLength();
+        } else {
+          dataBuffer = getDataBufferByCopying(channel, (int) lengthPerOp);
         }
       }
       // update bytesToTransferLeft

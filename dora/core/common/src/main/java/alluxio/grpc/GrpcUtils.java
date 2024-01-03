@@ -30,10 +30,13 @@ import alluxio.wire.FileSystemCommand;
 import alluxio.wire.LoadMetadataType;
 import alluxio.wire.MountPointInfo;
 import alluxio.wire.PersistFile;
+import alluxio.wire.ProtoParsingException;
 import alluxio.wire.RegisterLease;
 import alluxio.wire.UfsInfo;
+import alluxio.wire.WorkerIdentity;
 import alluxio.wire.WorkerInfo;
 import alluxio.wire.WorkerNetAddress;
+import alluxio.wire.WorkerState;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.net.HostAndPort;
@@ -300,11 +303,23 @@ public final class GrpcUtils {
    * @return the converted wire type
    */
   public static WorkerInfo fromProto(alluxio.grpc.WorkerInfo workerInfo) {
-    return new WorkerInfo().setAddress(fromProto(workerInfo.getAddress()))
+    WorkerInfo ret = new WorkerInfo();
+    if (workerInfo.hasIdentity()) {
+      final alluxio.grpc.WorkerIdentity identityProto = workerInfo.getIdentity();
+      try {
+        alluxio.wire.WorkerIdentity identity = WorkerIdentity.fromProto(identityProto);
+        ret.setIdentity(identity);
+      } catch (ProtoParsingException e) {
+        throw new IllegalArgumentException("Invalid worker identity in proto message", e);
+      }
+    }
+    return ret
+        .setAddress(fromProto(workerInfo.getAddress()))
         .setCapacityBytes(workerInfo.getCapacityBytes())
         .setCapacityBytesOnTiers(workerInfo.getCapacityBytesOnTiers()).setId(workerInfo.getId())
         .setLastContactSec(workerInfo.getLastContactSec())
-        .setStartTimeMs(workerInfo.getStartTimeMs()).setState(workerInfo.getState())
+        .setStartTimeMs(workerInfo.getStartTimeMs())
+        .setState(WorkerState.of(workerInfo.getState()))
         .setUsedBytes(workerInfo.getUsedBytes())
         .setUsedBytesOnTiers(workerInfo.getUsedBytesOnTiersMap())
         .setVersion(workerInfo.getBuildVersion().getVersion())
@@ -554,8 +569,10 @@ public final class GrpcUtils {
    */
   public static alluxio.grpc.WorkerInfo toProto(WorkerInfo workerInfo) {
     return alluxio.grpc.WorkerInfo.newBuilder().setId(workerInfo.getId())
+        .setIdentity(workerInfo.getIdentity().toProto())
         .setAddress(toProto(workerInfo.getAddress()))
-        .setLastContactSec(workerInfo.getLastContactSec()).setState(workerInfo.getState())
+        .setLastContactSec(workerInfo.getLastContactSec())
+        .setState(workerInfo.getState().toString())
         .setCapacityBytes(workerInfo.getCapacityBytes()).setUsedBytes(workerInfo.getUsedBytes())
         .setStartTimeMs(workerInfo.getStartTimeMs())
         .putAllCapacityBytesOnTiers(workerInfo.getCapacityBytesOnTiers())

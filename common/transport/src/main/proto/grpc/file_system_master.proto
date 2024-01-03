@@ -463,6 +463,7 @@ message RenamePOptions {
   optional FileSystemMasterCommonPOptions commonOptions = 1;
   optional bool persist = 2;
   optional S3SyntaxOptions s3SyntaxOptions = 3;
+  optional bool overwrite = 4;
 }
 message RenamePRequest {
   /** the source path of the file or directory */
@@ -608,6 +609,8 @@ message LoadJobPOptions {
   optional bool partialListing = 3;
   optional bool loadMetadataOnly = 4;
   optional bool skipIfExists = 5;
+  optional string fileFilterRegx = 6;
+  optional int32 replicas = 7;
 }
 
 message CopyJobPOptions {

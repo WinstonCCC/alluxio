@@ -15,24 +15,37 @@ import alluxio.conf.AlluxioConfiguration;
 import alluxio.conf.PropertyKey;
 import alluxio.exception.status.AlreadyExistsException;
 import alluxio.util.CommonUtils;
+import alluxio.wire.WorkerIdentity;
 import alluxio.wire.WorkerInfo;
+import alluxio.wire.WorkerState;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.gson.JsonParseException;
-import com.google.gson.JsonSyntaxException;
+import io.etcd.jetcd.ByteSequence;
 import io.etcd.jetcd.KeyValue;
+import io.etcd.jetcd.Txn;
+import io.etcd.jetcd.kv.TxnResponse;
+import io.etcd.jetcd.op.Cmp;
+import io.etcd.jetcd.op.CmpTarget;
+import io.etcd.jetcd.op.Op;
+import io.etcd.jetcd.options.GetOption;
+import io.etcd.jetcd.options.PutOption;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * MembershipManager backed by configured etcd cluster.
@@ -83,25 +96,59 @@ public class EtcdMembershipManager implements MembershipManager {
   @Override
   public void join(WorkerInfo workerInfo) throws IOException {
     LOG.info("Try joining on etcd for worker:{} ", workerInfo);
-    WorkerServiceEntity entity = new WorkerServiceEntity(workerInfo.getAddress());
-    // 1) register to the ring, check if there's existing entry
+    WorkerServiceEntity entity =
+        new WorkerServiceEntity(workerInfo.getIdentity(), workerInfo.getAddress());
     String pathOnRing = new StringBuffer()
         .append(getRingPathPrefix())
         .append(entity.getServiceEntityName()).toString();
-    byte[] existingEntityBytes = mAlluxioEtcdClient.getForPath(pathOnRing);
     byte[] serializedEntity = entity.serialize();
-    // If there's existing entry, check if it's me.
-    if (existingEntityBytes != null) {
-      // It's not me, something is wrong.
-      if (!Arrays.equals(existingEntityBytes, serializedEntity)) {
-        // Might be regression of different formatted value of workerinfo is registered.
-        throw new AlreadyExistsException(
-            "Some other member with same id registered on the ring, bail.");
+    // 1) register to the ring.
+    // CompareAndSet if no existing registered entry, if exist such key, two cases:
+    // a) it's k8s env, still register, overwriting the existing entry
+    // b) it's not k8s env, compare the registered entity content, if it's me
+    //    then no op, if not, we don't allow overwriting the existing entity.
+    try {
+      boolean isK8s = mConf.isSet(PropertyKey.K8S_ENV_DEPLOYMENT)
+          && mConf.getBoolean(PropertyKey.K8S_ENV_DEPLOYMENT);
+      Txn txn = mAlluxioEtcdClient.getEtcdClient().getKVClient().txn();
+      ByteSequence keyToPut = ByteSequence.from(pathOnRing, StandardCharsets.UTF_8);
+      ByteSequence valToPut = ByteSequence.from(serializedEntity);
+      CompletableFuture<TxnResponse> txnResponseFut = txn
+          // version of the key indicates number of modification, 0 means
+          // this key does not exist
+          .If(new Cmp(keyToPut, Cmp.Op.EQUAL, CmpTarget.version(0L)))
+          .Then(Op.put(keyToPut, valToPut, PutOption.newBuilder().build()))
+          .Else(isK8s ? Op.put(keyToPut, valToPut, PutOption.newBuilder().build()) :
+              Op.get(keyToPut, GetOption.DEFAULT))
+          .commit();
+      TxnResponse txnResponse = txnResponseFut.get();
+      if (!isK8s && !txnResponse.isSucceeded()) {
+        // service kv already exists, for non-k8s env, check if it's me.
+        // bail if it's someone else.
+        List<KeyValue> kvs = new ArrayList<>();
+        txnResponse.getGetResponses().stream().map(
+            r -> kvs.addAll(r.getKvs())).collect(Collectors.toList());
+        Optional<KeyValue> latestKV = kvs.stream()
+            .max((kv1, kv2) -> (int) (kv1.getModRevision() - kv2.getModRevision()));
+        if (latestKV.isPresent()
+            && !Arrays.equals(latestKV.get().getValue().getBytes(), serializedEntity)) {
+          Optional<WorkerServiceEntity> existingEntity = parseWorkerServiceEntity(latestKV.get());
+          if (!existingEntity.isPresent()) {
+            throw new IOException(String.format(
+                "Existing WorkerServiceEntity for path:%s corrupted",
+                pathOnRing));
+          }
+          throw new AlreadyExistsException(
+              String.format("Some other member with same id registered on the ring, bail."
+                  + "Conflicting worker addr:%s, worker identity:%s."
+                  + "Different workers can't assume same worker identity in non-k8s env,"
+                  + "clean local worker identity settings to continue.",
+                  existingEntity.get().getWorkerNetAddress().toString(),
+                  existingEntity.get().getIdentity()));
+        }
       }
-      // It's me, go ahead to start heartbeating.
-    } else {
-      // If haven't created myself onto the ring before, create now.
-      mAlluxioEtcdClient.createForPath(pathOnRing, Optional.of(serializedEntity));
+    } catch (InterruptedException | ExecutionException e) {
+      throw new IOException(e);
     }
     // 2) start heartbeat
     mAlluxioEtcdClient.mServiceDiscovery.registerAndStartSync(entity);
@@ -109,81 +156,84 @@ public class EtcdMembershipManager implements MembershipManager {
   }
 
   @Override
-  public List<WorkerInfo> getAllMembers() throws IOException {
-    List<WorkerServiceEntity> registeredWorkers = retrieveFullMembers();
-    return registeredWorkers.stream()
-        .map(e -> new WorkerInfo().setAddress(e.getWorkerNetAddress()))
-        .collect(Collectors.toList());
-  }
-
-  private List<WorkerServiceEntity> retrieveFullMembers() throws IOException {
-    List<WorkerServiceEntity> fullMembers = new ArrayList<>();
-    List<KeyValue> childrenKvs = mAlluxioEtcdClient.getChildren(getRingPathPrefix());
-    for (KeyValue kv : childrenKvs) {
-      try {
-        WorkerServiceEntity entity = new WorkerServiceEntity();
-        entity.deserialize(kv.getValue().getBytes());
-        fullMembers.add(entity);
-      } catch (JsonParseException ex) {
-        // Ignore
-      }
-    }
-    return fullMembers;
-  }
-
-  private List<WorkerServiceEntity> retrieveLiveMembers() throws IOException {
-    List<WorkerServiceEntity> liveMembers = new ArrayList<>();
-    for (Map.Entry<String, ByteBuffer> entry : mAlluxioEtcdClient.mServiceDiscovery
-        .getAllLiveServices().entrySet()) {
-      try {
-        WorkerServiceEntity entity = new WorkerServiceEntity();
-        entity.deserialize(entry.getValue().array());
-        liveMembers.add(entity);
-      } catch (JsonSyntaxException ex) {
-        // Ignore
-      }
-    }
-    return liveMembers;
+  public WorkerClusterView getAllMembers() throws IOException {
+    Set<WorkerIdentity> liveWorkerIds = parseWorkersFromEtcdKvPairs(
+        mAlluxioEtcdClient.mServiceDiscovery.getAllLiveServices())
+        .map(WorkerServiceEntity::getIdentity)
+        .collect(Collectors.toSet());
+    Predicate<WorkerInfo> isLive = w -> liveWorkerIds.contains(w.getIdentity());
+    Iterable<WorkerInfo> workerInfoIterable = parseWorkersFromEtcdKvPairs(
+        mAlluxioEtcdClient.getChildren(getRingPathPrefix()))
+        .map(w -> new WorkerInfo()
+            .setIdentity(w.getIdentity())
+            .setAddress(w.getWorkerNetAddress()))
+        .map(w -> w.setState(isLive.test(w) ? WorkerState.LIVE : WorkerState.LOST))
+        ::iterator;
+    return new WorkerClusterView(workerInfoIterable);
   }
 
   @Override
-  @VisibleForTesting
-  public List<WorkerInfo> getLiveMembers() throws IOException {
-    List<WorkerServiceEntity> liveWorkers = retrieveLiveMembers();
-    return liveWorkers.stream()
-        .map(e -> new WorkerInfo().setAddress(e.getWorkerNetAddress()))
-        .collect(Collectors.toList());
+  public WorkerClusterView getLiveMembers() throws IOException {
+    Iterable<WorkerInfo> workerInfoIterable = parseWorkersFromEtcdKvPairs(
+        mAlluxioEtcdClient.mServiceDiscovery.getAllLiveServices())
+        .map(w -> new WorkerInfo()
+            .setIdentity(w.getIdentity())
+            .setAddress(w.getWorkerNetAddress())
+            .setState(WorkerState.LIVE))
+        ::iterator;
+    return new WorkerClusterView(workerInfoIterable);
   }
 
   @Override
-  @VisibleForTesting
-  public List<WorkerInfo> getFailedMembers() throws IOException {
-    List<WorkerServiceEntity> registeredWorkers = retrieveFullMembers();
-    List<String> liveWorkers = retrieveLiveMembers()
-        .stream().map(e -> e.getServiceEntityName())
-        .collect(Collectors.toList());
-    registeredWorkers.removeIf(e -> liveWorkers.contains(e.getServiceEntityName()));
-    return registeredWorkers.stream()
-        .map(e -> new WorkerInfo().setAddress(e.getWorkerNetAddress()))
-        .collect(Collectors.toList());
+  public WorkerClusterView getFailedMembers() throws IOException {
+    Set<WorkerIdentity> liveWorkerIds = parseWorkersFromEtcdKvPairs(
+        mAlluxioEtcdClient.mServiceDiscovery.getAllLiveServices())
+        .map(WorkerServiceEntity::getIdentity)
+        .collect(Collectors.toSet());
+    Iterable<WorkerInfo> failedWorkerIterable = parseWorkersFromEtcdKvPairs(
+        mAlluxioEtcdClient.getChildren(getRingPathPrefix()))
+        .filter(w -> !liveWorkerIds.contains(w.getIdentity()))
+        .map(w -> new WorkerInfo()
+            .setIdentity(w.getIdentity())
+            .setAddress(w.getWorkerNetAddress())
+            .setState(WorkerState.LOST))
+        ::iterator;
+    return new WorkerClusterView(failedWorkerIterable);
+  }
+
+  private Stream<WorkerServiceEntity> parseWorkersFromEtcdKvPairs(List<KeyValue> workerKvs) {
+    return workerKvs
+        .stream()
+        .map(this::parseWorkerServiceEntity)
+        .filter(Optional::isPresent)
+        .map(Optional::get);
+  }
+
+  private Optional<WorkerServiceEntity> parseWorkerServiceEntity(KeyValue etcdKvPair) {
+    try {
+      WorkerServiceEntity entity = new WorkerServiceEntity();
+      entity.deserialize(etcdKvPair.getValue().getBytes());
+      return Optional.of(entity);
+    } catch (JsonParseException ex) {
+      return Optional.empty();
+    }
   }
 
   @Override
   @VisibleForTesting
   public String showAllMembers() {
     try {
-      List<WorkerServiceEntity> registeredWorkers = retrieveFullMembers();
-      List<String> liveWorkers = retrieveLiveMembers().stream().map(
-          w -> w.getServiceEntityName()).collect(Collectors.toList());
+      WorkerClusterView registeredWorkers = getAllMembers();
+      WorkerClusterView liveWorkers = getLiveMembers();
       String printFormat = "%s\t%s\t%s%n";
       StringBuilder sb = new StringBuilder(
           String.format(printFormat, "WorkerId", "Address", "Status"));
-      for (WorkerServiceEntity entity : registeredWorkers) {
+      for (WorkerInfo entity : registeredWorkers) {
         String entryLine = String.format(printFormat,
-            entity.getServiceEntityName(),
-            entity.getWorkerNetAddress().getHost() + ":"
-                + entity.getWorkerNetAddress().getRpcPort(),
-            liveWorkers.contains(entity.getServiceEntityName()) ? "ONLINE" : "OFFLINE");
+            entity.getIdentity(),
+            entity.getAddress().getHost() + ":"
+                + entity.getAddress().getRpcPort(),
+            liveWorkers.getWorkerById(entity.getIdentity()).isPresent() ? "ONLINE" : "OFFLINE");
         sb.append(entryLine);
       }
       return sb.toString();
@@ -194,7 +244,7 @@ public class EtcdMembershipManager implements MembershipManager {
 
   @Override
   public void stopHeartBeat(WorkerInfo worker) throws IOException {
-    WorkerServiceEntity entity = new WorkerServiceEntity(worker.getAddress());
+    WorkerServiceEntity entity = new WorkerServiceEntity(worker.getIdentity(), worker.getAddress());
     mAlluxioEtcdClient.mServiceDiscovery.unregisterService(entity.getServiceEntityName());
   }
 

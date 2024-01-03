@@ -1048,9 +1048,27 @@ public final class PropertyKey implements Comparable<PropertyKey> {
           .setConsistencyCheckLevel(ConsistencyCheckLevel.ENFORCE)
           .setScope(Scope.MASTER)
           .build();
+  public static final PropertyKey K8S_ENV_DEPLOYMENT =
+      booleanBuilder(Name.K8S_ENV_DEPLOYMENT)
+          .setDefaultValue(false)
+          .setDescription("If Alluxio is deployed in K8s environment.")
+          .setConsistencyCheckLevel(ConsistencyCheckLevel.ENFORCE)
+          .setScope(Scope.ALL)
+          .setIsHidden(true)
+          .build();
+
   /**
    * UFS related properties.
    */
+  public static final PropertyKey UNDERFS_XATTR_CHANGE_ENABLED =
+      Builder.booleanBuilder(Name.UNDERFS_XATTR_CHANGE_ENABLED)
+          .setDefaultValue(true)
+          .setDescription("When enabled, Alluxio allows user to set/get xAttr from/to UFS. "
+              + "There will be different implementation methods in different UFS, "
+              + "implemented like HdfsUFS.setXattr, ObjectUFS.setTagging, or other ways.")
+          .setConsistencyCheckLevel(ConsistencyCheckLevel.ENFORCE)
+          .setScope(Scope.SERVER)
+          .build();
   public static final PropertyKey UNDERFS_STRICT_VERSION_MATCH_ENABLED =
       Builder.booleanBuilder(Name.UNDERFS_STRICT_VERSION_MATCH_ENABLED)
           .setDefaultValue(false)
@@ -1910,6 +1928,21 @@ public final class PropertyKey implements Comparable<PropertyKey> {
           .setConsistencyCheckLevel(ConsistencyCheckLevel.ENFORCE)
           .setScope(Scope.SERVER)
           .build();
+  public static final PropertyKey UNDERFS_OSS_DEFAULT_MODE =
+      stringBuilder(Name.UNDERFS_OSS_DEFAULT_MODE)
+          .setAlias("alluxio.underfs.oss.default.mode")
+          .setDefaultValue("0700")
+          .setDescription("Mode (in octal notation) for OSS objects if mode cannot be discovered.")
+          .setConsistencyCheckLevel(ConsistencyCheckLevel.WARN)
+          .setScope(Scope.SERVER)
+          .build();
+  public static final PropertyKey UNDERFS_OSS_OWNER_ID_TO_USERNAME_MAPPING =
+      stringBuilder(Name.UNDERFS_OSS_OWNER_ID_TO_USERNAME_MAPPING)
+          .setDescription("Optionally, specify a preset oss canonical id to Alluxio username "
+              + "static mapping, in the format \"id1=user1;id2=user2\". ")
+          .setConsistencyCheckLevel(ConsistencyCheckLevel.ENFORCE)
+          .setScope(Scope.SERVER)
+          .build();
   public static final PropertyKey S3A_ACCESS_KEY = stringBuilder(Name.S3A_ACCESS_KEY)
       .setAlias(Name.AWS_ACCESS_KEY)
       .setDescription("The access key of S3 bucket.")
@@ -2302,7 +2335,7 @@ public final class PropertyKey implements Comparable<PropertyKey> {
   public static final PropertyKey MASTER_DORA_LOAD_JOB_TOTAL_FAILURE_COUNT_THRESHOLD =
       intBuilder(Name.MASTER_DORA_LOAD_JOB_TOTAL_FAILURE_COUNT_THRESHOLD)
           .setDefaultValue(-1)
-          .setDescription("The load job total load failure count threshold. -1 means never fail.")
+          .setDescription("The load job total load failure count threshold. -1 means never fail. ")
           .setConsistencyCheckLevel(ConsistencyCheckLevel.WARN)
           .setScope(Scope.SERVER)
           .build();
@@ -2314,15 +2347,24 @@ public final class PropertyKey implements Comparable<PropertyKey> {
           .setConsistencyCheckLevel(ConsistencyCheckLevel.WARN)
           .setScope(Scope.SERVER)
           .build();
-  public static final PropertyKey MASTER_DORA_LOAD_JOB_RETRIES =
-      intBuilder(Name.MASTER_DORA_LOAD_JOB_RETRIES)
-          .setDefaultValue(3)
-          .setDescription("The number of retry attempts before a load of file "
-              + "is considered as failure")
+  public static final PropertyKey MASTER_DORA_LOAD_JOB_RETRY_DLQ_CAPACITY =
+      intBuilder(Name.MASTER_DORA_LOAD_JOB_RETRY_DLQ_CAPACITY)
+          .setDefaultValue(1_000_000)
+          .setDescription(
+              "The capacity of the dead letter queue we persist failed tasks in memory "
+                  + "for retrying purpose. Once the queue is full, failed subtasks will not retry"
+                  + "and will just fail. On average one subtask takes up 0.5KB in memory. "
+                  + " Properly set this property to avoid OOM.")
           .setConsistencyCheckLevel(ConsistencyCheckLevel.WARN)
           .setScope(Scope.SERVER)
           .build();
-
+  public static final PropertyKey MASTER_DORA_LOAD_JOB_FAILED_FILE_LIST_DIR =
+      stringBuilder(Name.MASTER_DORA_LOAD_JOB_FAILED_FILE_LIST_DIR)
+          .setDefaultValue(format("${%s}/job_results/load", Name.WORK_DIR))
+          .setDescription("The directory to store failed file list of a distributed load job.")
+          .setConsistencyCheckLevel(ConsistencyCheckLevel.IGNORE)
+          .setScope(Scope.SERVER)
+          .build();
   public static final PropertyKey MASTER_SHELL_BACKUP_STATE_LOCK_GRACE_MODE =
       enumBuilder(Name.MASTER_SHELL_BACKUP_STATE_LOCK_GRACE_MODE, GraceMode.class)
           .setDefaultValue(GraceMode.FORCED)
@@ -3990,6 +4032,16 @@ public final class PropertyKey implements Comparable<PropertyKey> {
           .setConsistencyCheckLevel(ConsistencyCheckLevel.WARN)
           .setScope(Scope.WORKER)
           .build();
+  public static final PropertyKey WORKER_FAST_DATA_LOAD_ENABLED =
+      booleanBuilder(Name.WORKER_FAST_DATA_LOAD_ENABLED)
+          .setDescription("If enabled, instead of creating a reader to load the data, "
+              + "we just get the data from UFS and put it into the page store. This is an "
+              + "experimental feature.")
+          .setIsHidden(true)
+          .setDefaultValue(false)
+          .setConsistencyCheckLevel(ConsistencyCheckLevel.WARN)
+          .setScope(Scope.WORKER)
+          .build();
   public static final PropertyKey WORKER_DATA_SERVER_DOMAIN_SOCKET_AS_UUID =
       booleanBuilder(Name.WORKER_DATA_SERVER_DOMAIN_SOCKET_AS_UUID)
           .setDefaultValue(false)
@@ -3999,13 +4051,6 @@ public final class PropertyKey implements Comparable<PropertyKey> {
               + "to the UNIX domain socket.")
           .setConsistencyCheckLevel(ConsistencyCheckLevel.WARN)
           .setScope(Scope.ALL)
-          .build();
-  public static final PropertyKey WORKER_FUSE_ENABLED =
-      booleanBuilder(Name.WORKER_FUSE_ENABLED)
-          .setDefaultValue(false)
-          .setDescription("If true, launch worker embedded Fuse application.")
-          .setConsistencyCheckLevel(ConsistencyCheckLevel.WARN)
-          .setScope(Scope.WORKER)
           .build();
   public static final PropertyKey WORKER_STARTUP_TIMEOUT =
       durationBuilder(Name.WORKER_STARTUP_TIMEOUT)
@@ -4520,7 +4565,13 @@ public final class PropertyKey implements Comparable<PropertyKey> {
           .setConsistencyCheckLevel(ConsistencyCheckLevel.WARN)
           .setScope(Scope.WORKER)
           .build();
-
+  public static final PropertyKey WORKER_PRELOAD_DATA_THREAD_POOL_SIZE =
+      intBuilder(Name.WORKER_PRELOAD_DATA_THREAD_POOL_SIZE)
+          .setScope(Scope.WORKER)
+          .setDefaultValue(20)
+          .setDescription("The worker preload data thread pool size; Each thread loads a page.")
+          .setConsistencyCheckLevel(ConsistencyCheckLevel.IGNORE)
+          .build();
   public static final PropertyKey WORKER_PRINCIPAL = stringBuilder(Name.WORKER_PRINCIPAL)
       .setDescription("Kerberos principal for Alluxio worker.")
       .setConsistencyCheckLevel(ConsistencyCheckLevel.ENFORCE)
@@ -5055,7 +5106,13 @@ public final class PropertyKey implements Comparable<PropertyKey> {
               + "Set value less than or equal to 0 to disable rate limits.")
           .setDefaultValue(0)
           .setScope(Scope.SERVER)
-
+          .build();
+  public static final PropertyKey PROXY_S3_TRANSFER_BUFFER_SIZE =
+      dataSizeBuilder(Name.PROXY_S3_TRANSFER_BUFFER_SIZE)
+          .setConsistencyCheckLevel(ConsistencyCheckLevel.ENFORCE)
+          .setDescription("Buffer size used for proxy data transfer.")
+          .setDefaultValue("8KB")
+          .setScope(Scope.SERVER)
           .build();
 
   //
@@ -5606,6 +5663,14 @@ public final class PropertyKey implements Comparable<PropertyKey> {
           .setConsistencyCheckLevel(ConsistencyCheckLevel.WARN)
           .setScope(Scope.CLIENT)
           .build();
+  public static final PropertyKey USER_CLIENT_CACHE_IDENTIFIER_INCLUDE_MTIME =
+      booleanBuilder(Name.USER_CLIENT_CACHE_IDENTIFIER_INCLUDE_MTIME)
+          .setDefaultValue(false)
+          .setDescription("If this is enabled, client-side cache will include modification time "
+              + "while calculating the identifier of a file.")
+          .setConsistencyCheckLevel(ConsistencyCheckLevel.WARN)
+          .setScope(Scope.CLIENT)
+          .build();
 
   public static final PropertyKey USER_CLIENT_REPORT_VERSION_ENABLED =
       booleanBuilder(Name.USER_CLIENT_REPORT_VERSION_ENABLED)
@@ -5772,6 +5837,46 @@ public final class PropertyKey implements Comparable<PropertyKey> {
               + "aggressive prefetching, but uses more memory and suffers a greater loss if the "
               + "buffered data ends up being unused.")
           .setIsHidden(true)
+          .setConsistencyCheckLevel(ConsistencyCheckLevel.IGNORE)
+          .build();
+  public static final PropertyKey USER_POSITION_READER_STREAMING_ADAPTIVE_POLICY_ENABLED =
+      booleanBuilder(Name.USER_POSITION_READER_STREAMING_ADAPTIVE_POLICY_ENABLED)
+          .setScope(Scope.CLIENT)
+          .setDefaultValue(false)
+          .setDescription("If uses adaptive policy to adjust the prefetch window size")
+          .setIsHidden(true)
+          .setConsistencyCheckLevel(ConsistencyCheckLevel.IGNORE)
+          .build();
+  public static final PropertyKey USER_POSITION_READER_STREAMING_PREFETCH_MAX_SIZE =
+      dataSizeBuilder(Name.USER_POSITION_READER_STREAMING_PREFETCH_MAX_SIZE)
+          .setScope(Scope.CLIENT)
+          .setDefaultValue("16MB")
+          .setDescription("The max size of the prefetch of dynamic buffering")
+          .setIsHidden(true)
+          .setConsistencyCheckLevel(ConsistencyCheckLevel.IGNORE)
+          .build();
+  public static final PropertyKey USER_POSITION_READER_PRELOAD_DATA_ENABLED =
+      booleanBuilder(Name.USER_POSITION_READER_PRELOAD_DATA_ENABLED)
+          .setScope(Scope.CLIENT)
+          .setDefaultValue(false)
+          .setDescription(
+              "If enabled, the client will ask worker to preload the following data "
+                  + "from UFS, if it is not cached. Turning this on improves the cold "
+                  + "read performance, but also might result in caching unused data.")
+          .setConsistencyCheckLevel(ConsistencyCheckLevel.IGNORE)
+          .build();
+  public static final PropertyKey USER_POSITION_READER_PRELOAD_DATA_FILE_SIZE_THRESHOLD =
+      dataSizeBuilder(Name.USER_POSITION_READER_PRELOAD_DATA_FILE_SIZE_THRESHOLD)
+          .setScope(Scope.CLIENT)
+          .setDefaultValue("2GB")
+          .setDescription("The file size threshold that triggers the worker data preload.")
+          .setConsistencyCheckLevel(ConsistencyCheckLevel.IGNORE)
+          .build();
+  public static final PropertyKey USER_POSITION_READER_PRELOAD_DATA_SIZE =
+      dataSizeBuilder(Name.USER_POSITION_READER_PRELOAD_DATA_SIZE)
+          .setScope(Scope.CLIENT)
+          .setDefaultValue("256MB")
+          .setDescription("The preload data size to load on worker.")
           .setConsistencyCheckLevel(ConsistencyCheckLevel.IGNORE)
           .build();
   public static final PropertyKey USER_STREAMING_DATA_READ_TIMEOUT =
@@ -6301,9 +6406,8 @@ public final class PropertyKey implements Comparable<PropertyKey> {
           .setAlias(Name.WORKER_FUSE_MOUNT_ALLUXIO_PATH)
           .setDefaultValue("/")
           .setDescription(format("The Alluxio path to mount to the given "
-              + "Fuse mount point configured by %s in the worker when %s is enabled "
-              + "or in the standalone Fuse process.",
-              Name.FUSE_MOUNT_POINT, Name.WORKER_FUSE_ENABLED))
+              + "Fuse mount point configured by %s.",
+              Name.FUSE_MOUNT_POINT))
           .setConsistencyCheckLevel(ConsistencyCheckLevel.WARN)
           .setScope(Scope.ALL)
           .build();
@@ -6321,8 +6425,7 @@ public final class PropertyKey implements Comparable<PropertyKey> {
       stringBuilder(Name.FUSE_MOUNT_POINT)
           .setAlias(Name.WORKER_FUSE_MOUNT_POINT)
           .setDefaultValue("/mnt/alluxio-fuse")
-          .setDescription(format("The absolute local filesystem path that worker (if %s is enabled)"
-              + "or standalone Fuse will mount Alluxio path to.", Name.WORKER_FUSE_ENABLED))
+          .setDescription("The absolute local filesystem path that mount Alluxio path to.")
           .setConsistencyCheckLevel(ConsistencyCheckLevel.WARN)
           .setScope(Scope.ALL)
           .build();
@@ -6358,6 +6461,13 @@ public final class PropertyKey implements Comparable<PropertyKey> {
               + "A value smaller than or equal to zero means no umount wait time. ")
           .setConsistencyCheckLevel(ConsistencyCheckLevel.IGNORE)
           .setScope(Scope.CLIENT)
+          .build();
+  public static final PropertyKey FUSE_UPDATE_CHECK_ENABLED =
+      booleanBuilder(Name.FUSE_UPDATE_CHECK_ENABLED)
+          .setDefaultValue(Boolean.parseBoolean(ProjectConstants.UPDATE_CHECK_ENABLED))
+          .setDescription("Whether to check for update availability for alluxio-fuse")
+          .setConsistencyCheckLevel(ConsistencyCheckLevel.ENFORCE)
+          .setIsHidden(true)
           .build();
   public static final PropertyKey FUSE_USER_GROUP_TRANSLATION_ENABLED =
       booleanBuilder(Name.FUSE_USER_GROUP_TRANSLATION_ENABLED)
@@ -7100,6 +7210,16 @@ public final class PropertyKey implements Comparable<PropertyKey> {
           .setConsistencyCheckLevel(ConsistencyCheckLevel.ENFORCE)
           .setScope(Scope.WORKER)
           .build();
+  public static final PropertyKey DORA_READ_VIRTUAL_BLOCK_SIZE =
+      dataSizeBuilder(Name.DORA_READ_VIRTUAL_BLOCK_SIZE)
+          .setDefaultValue("0MB")
+          .setDescription(format("The minimum required file size of virtual block. "
+              + "Files larger than this would be split into virtual blocks "
+              + "and read from different works. Virtual block size need to be "
+              + "a multiplier of %s", Name.WORKER_PAGE_STORE_PAGE_SIZE))
+          .setConsistencyCheckLevel(ConsistencyCheckLevel.ENFORCE)
+          .setScope(Scope.CLIENT)
+          .build();
 
   public static final PropertyKey CLIENT_WRITE_TO_UFS_ENABLED =
       booleanBuilder(Name.CLIENT_WRITE_TO_UFS_ENABLED)
@@ -7214,9 +7334,13 @@ public final class PropertyKey implements Comparable<PropertyKey> {
     public static final String ZOOKEEPER_AUTH_ENABLED = "alluxio.zookeeper.auth.enabled";
     public static final String ZOOKEEPER_LEADER_CONNECTION_ERROR_POLICY =
         "alluxio.zookeeper.leader.connection.error.policy";
+    public static final String K8S_ENV_DEPLOYMENT =
+        "alluxio.k8s.env.deployment";
     //
     // UFS related properties
     //
+    public static final String UNDERFS_XATTR_CHANGE_ENABLED =
+        "alluxio.underfs.xattr.change.enabled";
     public static final String UNDERFS_STRICT_VERSION_MATCH_ENABLED =
         "alluxio.underfs.strict.version.match.enabled";
     public static final String UNDERFS_ALLOW_SET_OWNER_FAILURE =
@@ -7311,6 +7435,10 @@ public final class PropertyKey implements Comparable<PropertyKey> {
         "alluxio.underfs.oss.multipart.upload.threads";
     public static final String UNDERFS_OSS_MULTIPART_UPLOAD_PARTITION_SIZE =
         "alluxio.underfs.oss.multipart.upload.part.size";
+    public static final String UNDERFS_OSS_DEFAULT_MODE =
+        "alluxio.underfs.oss.default.mode";
+    public static final String UNDERFS_OSS_OWNER_ID_TO_USERNAME_MAPPING =
+        "alluxio.underfs.oss.owner.id.to.username.mapping";
     public static final String UNDERFS_S3_BULK_DELETE_ENABLED =
         "alluxio.underfs.s3.bulk.delete.enabled";
     public static final String UNDERFS_S3_DEFAULT_MODE = "alluxio.underfs.s3.default.mode";
@@ -7485,8 +7613,10 @@ public final class PropertyKey implements Comparable<PropertyKey> {
         "alluxio.master.dora.load.job.total.failure.count.threshold";
     public static final String MASTER_DORA_LOAD_JOB_TOTAL_FAILURE_RATIO_THRESHOLD =
         "alluxio.master.dora.load.job.total.failure.ratio.threshold";
-    public static final String MASTER_DORA_LOAD_JOB_RETRIES =
-        "alluxio.master.dora.load.job.retries";
+    public static final String MASTER_DORA_LOAD_JOB_RETRY_DLQ_CAPACITY =
+        "alluxio.master.dora.load.job.retry.dlq.capacity";
+    public static final String MASTER_DORA_LOAD_JOB_FAILED_FILE_LIST_DIR =
+        "alluxio.master.dora.load.job.failed.file.list.dir";
     public static final String MASTER_DAILY_BACKUP_ENABLED =
         "alluxio.master.daily.backup.enabled";
     public static final String MASTER_DAILY_BACKUP_FILES_RETAINED =
@@ -7856,8 +7986,8 @@ public final class PropertyKey implements Comparable<PropertyKey> {
         "alluxio.worker.data.server.domain.socket.address";
     public static final String WORKER_DATA_SERVER_DOMAIN_SOCKET_AS_UUID =
         "alluxio.worker.data.server.domain.socket.as.uuid";
-    public static final String WORKER_FUSE_ENABLED =
-        "alluxio.worker.fuse.enabled";
+    public static final String WORKER_FAST_DATA_LOAD_ENABLED =
+        "alluxio.worker.fast.data.load.enabled";
     public static final String WORKER_FUSE_MOUNT_ALLUXIO_PATH =
         "alluxio.worker.fuse.mount.alluxio.path";
     public static final String WORKER_FUSE_MOUNT_OPTIONS =
@@ -7989,6 +8119,8 @@ public final class PropertyKey implements Comparable<PropertyKey> {
         "alluxio.worker.page.store.timeout.threads";
     public static final String WORKER_PAGE_STORE_TYPE =
         "alluxio.worker.page.store.type";
+    public static final String WORKER_PRELOAD_DATA_THREAD_POOL_SIZE =
+        "alluxio.worker.preload.data.thread.pool.size";
     public static final String WORKER_RAMDISK_SIZE = "alluxio.worker.ramdisk.size";
     public static final String WORKER_REGISTER_LEASE_ENABLED =
         "alluxio.worker.register.lease.enabled";
@@ -8110,6 +8242,8 @@ public final class PropertyKey implements Comparable<PropertyKey> {
         "alluxio.proxy.s3.global.read.rate.limit.mb";
     public static final String PROXY_S3_SINGLE_CONNECTION_READ_RATE_LIMIT_MB =
         "alluxio.proxy.s3.single.connection.read.rate.limit.mb";
+    public static final String PROXY_S3_TRANSFER_BUFFER_SIZE =
+        "alluxio.proxy.transfer.buffer.size";
 
     //
     // User related properties
@@ -8204,6 +8338,8 @@ public final class PropertyKey implements Comparable<PropertyKey> {
         "alluxio.user.client.cache.timeout.duration";
     public static final String USER_CLIENT_CACHE_TIMEOUT_THREADS =
         "alluxio.user.client.cache.timeout.threads";
+    public static final String USER_CLIENT_CACHE_IDENTIFIER_INCLUDE_MTIME =
+        "alluxio.user.client.cache.include.mtime";
     public static final String USER_CLIENT_REPORT_VERSION_ENABLED =
         "alluxio.user.client.report.version.enabled";
     public static final String USER_CONSISTENT_HASH_VIRTUAL_NODE_COUNT_PER_WORKER =
@@ -8278,6 +8414,16 @@ public final class PropertyKey implements Comparable<PropertyKey> {
     public static final String USER_APP_ID = "alluxio.user.app.id";
     public static final String USER_POSITION_READER_STREAMING_MULTIPLIER =
         "alluxio.user.position.reader.streaming.multiplier";
+    public static final String USER_POSITION_READER_STREAMING_ADAPTIVE_POLICY_ENABLED =
+        "alluxio.user.position.reader.streaming.adaptive.policy.enabled";
+    public static final String USER_POSITION_READER_STREAMING_PREFETCH_MAX_SIZE =
+        "alluxio.user.position.reader.streaming.prefetch.max.size";
+    public static final String USER_POSITION_READER_PRELOAD_DATA_ENABLED =
+        "alluxio.user.position.reader.preload.data.enabled";
+    public static final String USER_POSITION_READER_PRELOAD_DATA_FILE_SIZE_THRESHOLD =
+        "alluxio.user.position.reader.preload.data.file.size.threshold";
+    public static final String USER_POSITION_READER_PRELOAD_DATA_SIZE =
+        "alluxio.user.position.reader.preload.data.size";
     public static final String USER_NETWORK_DATA_TIMEOUT =
         "alluxio.user.network.data.timeout";
     public static final String USER_NETWORK_READER_BUFFER_SIZE_MESSAGES =
@@ -8400,6 +8546,8 @@ public final class PropertyKey implements Comparable<PropertyKey> {
         "alluxio.fuse.stat.cache.refresh.interval";
     public static final String FUSE_UMOUNT_TIMEOUT =
         "alluxio.fuse.umount.timeout";
+    public static final String FUSE_UPDATE_CHECK_ENABLED =
+        "alluxio.fuse.update.check.enabled";
     public static final String FUSE_USER_GROUP_TRANSLATION_ENABLED =
         "alluxio.fuse.user.group.translation.enabled";
     public static final String FUSE_SPECIAL_COMMAND_ENABLED =
@@ -8585,7 +8733,6 @@ public final class PropertyKey implements Comparable<PropertyKey> {
 
     public static final String DORA_UFS_LIST_STATUS_CACHE_TTL =
         "alluxio.dora.ufs.list.status.cache.ttl";
-
     public static final String DORA_UFS_LIST_STATUS_CACHE_NR_FILES =
         "alluxio.dora.ufs.list.status.cache.nr.files";
 
@@ -8596,6 +8743,8 @@ public final class PropertyKey implements Comparable<PropertyKey> {
     //
     public static final String EXTRA_LOADED_FILESYSTEM_CLASSNAME =
             "alluxio.extra.loaded.filesystem.classname";
+    public static final String DORA_READ_VIRTUAL_BLOCK_SIZE =
+        "alluxio.dora.file.read.virtual.block.size";
 
     private Name() {} // prevent instantiation
   }

@@ -15,6 +15,7 @@ import alluxio.client.file.dora.netty.DebugLoggingTracer;
 import alluxio.conf.Configuration;
 import alluxio.conf.PropertyKey;
 import alluxio.exception.status.AlluxioStatusException;
+import alluxio.metrics.MultiDimensionalMetricsSystem;
 import alluxio.network.protocol.RPCProtoMessage;
 import alluxio.network.protocol.databuffer.DataBuffer;
 import alluxio.util.CommonUtils;
@@ -650,7 +651,8 @@ public class NettyReadHandlerStateMachine<ReqT extends ReadRequest> {
     PacketReader<ReqT> packetReader = requestContext.getPacketReader(mRequestType);
     final DataBuffer packet;
     try {
-      packet = packetReader.getDataBuffer(mChannel, requestContext.positionRead(), packetSize);
+      packet = packetReader.createDataBuffer(
+          mChannel, requestContext.positionRead(), packetSize);
     } catch (Exception e) {
       LOG.error("Failed to read data.", e);
       if (!(e instanceof IOException)) {
@@ -662,6 +664,8 @@ public class NettyReadHandlerStateMachine<ReqT extends ReadRequest> {
       return;
     }
     if (packet.readableBytes() == 0) {
+      // The packet can be released when there is nothing more to read
+      packet.release();
       // an empty packet means the underlying storage thinks it's EOF
       if (requestContext.positionRead() != requestContext.positionEnd()) {
         // it's possible that client expects more than what's available
@@ -674,6 +678,7 @@ public class NettyReadHandlerStateMachine<ReqT extends ReadRequest> {
       fireNext(mTriggerEventsWithParam.mOutputLengthFulfilled, requestContext);
       return;
     }
+    // The packet will be released in sendData() where the channel flushes the response
     requestContext.increaseReadProgress(packet.readableBytes());
     fireNext(mTriggerEventsWithParam.mDataAvailable, requestContext, packet);
   }
@@ -684,12 +689,12 @@ public class NettyReadHandlerStateMachine<ReqT extends ReadRequest> {
     RPCProtoMessage response = RPCProtoMessage.createOkResponse(dataBuffer);
     mChannel.writeAndFlush(response)
         .addListener((ChannelFuture future) -> {
+          MultiDimensionalMetricsSystem.DATA_ACCESS.labelValues("read").observe(length);
           if (!future.isSuccess()) {
             LOG.error("Failed to send packet.", future.cause());
             mChannelEventQueue.add(WriteFutureResolved.failure(future.cause()));
             return;
           }
-          //TODO(bowen): add num bytes read metrics
           mChannelEventQueue.put(WriteFutureResolved.success(length));
         });
     if (requestContext.bytesPending()
@@ -891,6 +896,7 @@ public class NettyReadHandlerStateMachine<ReqT extends ReadRequest> {
       Transition<State, TriggerEvent> transition) {
     LOG.warn("Client sent unexpected request {} when server was in state {} request was {}",
         unexpectedClientMessage, transition.getSource(), requestContext.getRequest());
+    MultiDimensionalMetricsSystem.DATA_ACCESS.labelValues("read").observe(0);
     String errorMessage = String.format("Unexpected client message %s when server is in state %s",
         unexpectedClientMessage, transition.getSource());
     Status errorStatus =
@@ -911,6 +917,7 @@ public class NettyReadHandlerStateMachine<ReqT extends ReadRequest> {
         transition.getSource(), transition.getTrigger(), throwable.getMessage());
     LOG.debug("Server error occurred when server was in state {}, triggered by {}.",
         transition.getSource(), transition.getTrigger(), throwable);
+    MultiDimensionalMetricsSystem.DATA_ACCESS.labelValues("read").observe(0);
     RPCProtoMessage errorResponse =
         RPCProtoMessage.createResponse(AlluxioStatusException.fromThrowable(throwable));
     Throwable error = syncReplyMessage(errorResponse);
